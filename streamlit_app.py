@@ -1,9 +1,8 @@
 # app.py
-# Unit Converter (Gradio) for Hugging Face Spaces
+# Unit Converter with Streamlit
 # Offline, no API keys required.
 
-import os
-import gradio as gr
+import streamlit as st
 
 # ---------------------------
 # Unit definitions (linear categories map to a base unit)
@@ -49,7 +48,7 @@ LINEAR_UNITS = {
         "mile/hour (mph)": 1609.344/3600.0,
         "knot (kn)": 1852.0/3600.0,
     },
-    "data": {           # base: byte (binary multiples)
+    "data": {           # base: byte
         "byte (B)": 1.0,
         "kilobyte (KB, 1024)": 1024.0,
         "megabyte (MB, 1024)": 1024.0**2,
@@ -67,9 +66,6 @@ ALL_CATEGORIES = list(LINEAR_UNITS.keys()) + ["temperature"]
 # ---------------------------
 def convert_linear(category: str, from_unit: str, to_unit: str, value: float) -> float:
     factors = LINEAR_UNITS[category]
-    if from_unit not in factors or to_unit not in factors:
-        raise ValueError("Unsupported unit for selected category.")
-    # Convert to base, then to target
     value_in_base = value * factors[from_unit]
     return value_in_base / factors[to_unit]
 
@@ -80,8 +76,6 @@ def temp_to_celsius(v: float, from_u: str) -> float:
         return (v - 32.0) * 5.0/9.0
     elif "Kelvin" in from_u:
         return v - 273.15
-    else:
-        raise ValueError("Unknown temperature unit.")
 
 def celsius_to_target(v_c: float, to_u: str) -> float:
     if "Celsius" in to_u:
@@ -90,87 +84,47 @@ def celsius_to_target(v_c: float, to_u: str) -> float:
         return v_c * 9.0/5.0 + 32.0
     elif "Kelvin" in to_u:
         return v_c + 273.15
-    else:
-        raise ValueError("Unknown temperature unit.")
 
 def convert(category, from_unit, to_unit, value):
-    # Return string with result or error message
     try:
         value = float(value)
-    except Exception:
-        return "Please enter a valid numeric value."
+    except:
+        return "❌ Please enter a valid number."
 
-    try:
-        if category == "temperature":
-            c = temp_to_celsius(value, from_unit)
-            out = celsius_to_target(c, to_unit)
-        else:
-            out = convert_linear(category, from_unit, to_unit, value)
-
-        # Format: show up to 6 significant digits (strip trailing zeros)
-        def fmt(x):
-            # use repr-like formatting but nicer
-            s = f"{x:.6g}"
-            return s
-
-        return f"{fmt(value)} {from_unit} = {fmt(out)} {to_unit}"
-    except Exception as e:
-        return f"Error: {e}"
-
-# ---------------------------
-# UI helpers
-# ---------------------------
-def units_for_category(category: str):
     if category == "temperature":
-        return TEMP_UNITS
-    return list(LINEAR_UNITS[category].keys())
+        c = temp_to_celsius(value, from_unit)
+        out = celsius_to_target(c, to_unit)
+    else:
+        out = convert_linear(category, from_unit, to_unit, value)
 
-def on_category_change(category):
-    units = units_for_category(category)
-    default_from = units[0]
-    default_to = units[1] if len(units) > 1 else units[0]
-    # Return updates for two dropdowns (from_unit, to_unit)
-    return (gr.update(choices=units, value=default_from),
-            gr.update(choices=units, value=default_to))
+    return f"{value} {from_unit} = {out:.6g} {to_unit}"
 
 # ---------------------------
-# Build Gradio interface (Blocks)
+# Streamlit UI
 # ---------------------------
-with gr.Blocks(title="Unit Converter") as demo:
-    gr.Markdown(
-        "## 🔁 Unit Converter\n"
-        "Convert between common units (length, mass, volume, time, speed, data, temperature). "
-        "This app runs offline and requires no API keys."
-    )
+st.set_page_config(page_title="Unit Converter", page_icon="🔁", layout="centered")
 
-    with gr.Row():
-        category = gr.Dropdown(choices=ALL_CATEGORIES, value="length", label="Category")
-        from_unit = gr.Dropdown(choices=units_for_category("length"), value="meter (m)", label="From")
-        to_unit = gr.Dropdown(choices=units_for_category("length"), value="kilometer (km)", label="To")
+st.title("🔁 Unit Converter")
+st.write("Convert between common units (length, mass, volume, time, speed, data, temperature).")
 
-    value = gr.Number(value=1.0, label="Value", precision=6)
-    with gr.Row():
-        convert_btn = gr.Button("Convert", variant="primary")
-        swap_btn = gr.Button("Swap ↔")
+category = st.selectbox("Select Category", ALL_CATEGORIES, index=0)
 
-    output = gr.Textbox(label="Result", interactive=False)
+if category == "temperature":
+    units = TEMP_UNITS
+else:
+    units = list(LINEAR_UNITS[category].keys())
 
-    # Events
-    category.change(fn=on_category_change, inputs=category, outputs=[from_unit, to_unit])
+col1, col2 = st.columns(2)
+with col1:
+    from_unit = st.selectbox("From Unit", units)
+with col2:
+    to_unit = st.selectbox("To Unit", units, index=1 if len(units) > 1 else 0)
 
-    def swap_units(from_u, to_u):
-        return (gr.update(value=to_u), gr.update(value=from_u))
+value = st.number_input("Enter Value", value=1.0, step=1.0)
 
-    swap_btn.click(fn=swap_units, inputs=[from_unit, to_unit], outputs=[from_unit, to_unit])
-    convert_btn.click(fn=convert, inputs=[category, from_unit, to_unit, value], outputs=output)
+if st.button("Convert"):
+    result = convert(category, from_unit, to_unit, value)
+    st.success(result)
 
-    gr.Markdown(
-        "### Examples\n"
-        "- Length: 1 meter → kilometer\n"
-        "- Mass: 2 pound → kilogram\n"
-        "- Temperature: 98.6 °F → °C"
-    )
-
-# Run the app. On Hugging Face Spaces the PORT env var is provided.
-if __name__ == "__main__":
-    demo.launch(server_name="0.0.0.0", server_port=int(os.environ.get("PORT", 7860)))
+st.markdown("---")
+st.markdown("📌 **Examples**: 1 meter → kilometer, 2 lb → kg, 98.6 °F → °C")
